@@ -152,93 +152,92 @@ curl -X POST http://localhost:8080/smartcampus-api/api/v1/sensors/OCC-001/readin
 
 ## Conceptual Report — Question Answers
 
-### Part 1.1 — JAX-RS Resource Lifecycle
+### Question 1: JAX-RS Resource Lifecycle
 
-By default, JAX-RS creates a **new instance of each resource class for every incoming HTTP request** (per-request scope). This is the opposite of a singleton. The runtime instantiates the resource, processes the request, and discards the instance afterwards.
+JAX-RS will create a new resource class instance for each HTTP request by default which results in per-request scope handling. This is the opposite of a singleton. The runtime instantiates the resource, processes the request, and discards the instance afterwards.
 
-**Impact on in-memory data management:** Because each request gets a fresh resource object, any state stored as an instance variable inside a resource class would be lost after the request ends. To safely share data across all requests, this project uses a **singleton `DataStore` class** accessed via a static `getInstance()` method. The `DataStore` internally uses `ConcurrentHashMap`, which is thread-safe and handles concurrent access from multiple simultaneous requests without race conditions or data corruption. This cleanly separates the stateless HTTP layer (resource classes) from the stateful data layer (DataStore).
+The system creates fresh resource instances for every request which results in loss of all instance variable data because resource class instance variables will not exist after request completion. The project implements a singleton DataStore class for data sharing across requests because users need to access the DataStore class through its static getInstance() method. The DataStore utilizes ConcurrentHashMap as its internal storage solution which provides thread-safe operation to manage multiple requests that access data simultaneously without causing race conditions or data loss. The system achieves clean separation between HTTP resource classes which operate without state from the DataStore component which maintains data throughout its operation.
 
 ---
 
-### Part 1.2 — HATEOAS and Hypermedia
+### Question 2: HATEOAS and Hypermedia
 
-**HATEOAS (Hypermedia As The Engine Of Application State)** is considered a hallmark of advanced RESTful design because it makes an API self-describing and navigable — much like the web itself.
+HATEOAS (Hypermedia As The Engine Of Application State) functions as the fundamental element of RESTful design because it enables APIs to provide self-describing navigation which operates similarly to the World Wide Web.
 
-In a HATEOAS-compliant API, every response includes links to related actions and resources. For example, a GET /rooms response might embed a `_links` object containing URIs to create a room, fetch sensors, or navigate to sub-resources.
+A HATEOAS-compliant API provides response links which connect to both related actions and additional resources. A GET /rooms response will show a `_links` object that includes URIs for creating rooms and fetching sensors and accessing sub-resources.
 
 **Benefits over static documentation:**
 - Clients do not need to hardcode URLs — they follow links embedded in responses
 - The API can change URL structures without breaking clients that follow links rather than assume paths
 - New capabilities can be discovered at runtime rather than requiring documentation updates
-- Reduces client-side coupling, enabling the server to evolve independently
+- Reduces client-side coupling enabling the server to evolve independently
 
 ---
 
-### Part 2.1 — IDs vs Full Objects in List Responses
+### Question 3: IDs vs Full Objects in List Responses
 
-**Returning only IDs** is bandwidth-efficient and fast for large collections, but forces clients to issue one additional GET request per item (the N+1 problem), increasing latency and server load.
+Returning only IDs is bandwidth-efficient for the initial list response, but it forces the client to make one additional GET request for every item they need details on — this is known as the N+1 problem, which increases latency and server load.
 
-**Returning full objects** provides all data in a single round-trip, eliminating follow-up requests. However, for collections of thousands of rooms with deeply nested sensor arrays, this can produce very large payloads that stress network and memory resources.
+Returning full objects enables users to access all information through a single round-trip while eliminating the need for additional requests. However, the system becomes overloaded when it needs to handle thousands of rooms which contain complex sensor arrays.
 
-**Best practice:** Return a compact summary representation (e.g., id, name, capacity) in list responses, and reserve the full object (including sensorIds and metadata) for individual GET /{roomId} requests. This balances network efficiency with client usability.
-
----
-
-### Part 2.2 — DELETE Idempotency
-
-Yes, **DELETE is idempotent** in this implementation. Idempotency means that making the same request multiple times produces the same server state as making it once — not necessarily the same response code.
-
-- **First DELETE on an existing room:** The room is removed. Returns `200 OK`.
-- **Second DELETE on the same (now deleted) room:** The room no longer exists. Returns `404 Not Found`.
-
-The server state is identical after both calls — the room is absent. The response code differs, but idempotency is defined by effect on state, not HTTP status. This is consistent with RFC 7231, which states DELETE is idempotent in terms of intended effect.
+Best practice requires list responses to provide a summary that includes id, name and capacity while full object details should be reserved for individual GET requests to /{roomId} endpoints. This approach provides network efficiency to users while maintaining usability for clients.
 
 ---
 
-### Part 3.1 — @Consumes and Media Type Mismatch
+### Question 4: DELETE Idempotency
 
-The `@Consumes(MediaType.APPLICATION_JSON)` annotation declares a contract: this endpoint only processes requests with `Content-Type: application/json`.
+Yes, DELETE is idempotent in this implementation. Idempotency means that making the same request multiple times produces the same server state as making it once — not necessarily the same response code.
 
-If a client sends `text/plain` or `application/xml`, JAX-RS performs content negotiation before invoking the method. Finding no matching `@Consumes` handler, it immediately returns **HTTP 415 Unsupported Media Type** — the method body is never executed. This is enforced entirely by the JAX-RS runtime, requiring no manual content-type checking inside the method, making the API safer and cleaner.
+The first DELETE operation on the existing room results in room deletion which returns 200 OK status. The second DELETE operation on the same room which has been deleted results in 404 Not Found status because the room no longer exists.
 
----
-
-### Part 3.2 — @QueryParam vs Path-Based Filtering
-
-`@QueryParam` (`/sensors?type=CO2`) is superior to path-based filtering (`/sensors/type/CO2`) for several reasons:
-
-1. **Semantic correctness:** Path segments identify a specific resource. `/sensors` is the collection — it always refers to the same resource regardless of filtering. Query params *modify* how that resource is presented.
-2. **Composability:** Multiple filters combine naturally: `?type=CO2&status=ACTIVE`. Path-based equivalents would require deeply nested or awkward URLs.
-3. **Optionality:** Query params are inherently optional. Path segments imply a required identifier, leading to conflicts when filtering is not needed.
-4. **Caching compatibility:** Caches and proxies treat the path as the resource key. Path-based filters create separate cache entries for the same underlying collection.
-5. **REST convention:** Query params are the universally accepted convention for search, filter, sort, and paginate operations.
+The server state remains unchanged because both requests lead to the same result of room elimination. The response code differs, but idempotency is defined by effect on state, not HTTP status. This is consistent with RFC 7231, which states DELETE is idempotent in terms of intended effect.
 
 ---
 
-### Part 4.1 — Sub-Resource Locator Pattern
+### Question 5: @Consumes and Media Type Mismatch
+
+The `@Consumes(MediaType.APPLICATION_JSON)` annotation establishes a requirement which the endpoint will accept only requests that use Content-Type: application/json.
+
+When a client transmits text/plain or application/xml, JAX-RS first evaluates the content before it proceeds to execute the specified method. The system returns HTTP 415 Unsupported Media Type because it could not locate any matching @Consumes handler which results in stopping all further operations of the method. The JAX-RS runtime system enforces this requirement because it eliminates the need for content-type verification by developers which results in a cleaner and safer application interface.
+
+---
+
+### Question 6: @QueryParam vs Path-Based Filtering
+
+Multiple factors establish @QueryParam (`/sensors?type=CO2`) as the superior choice when compared to path-based filtering (`/sensors/type/CO2`):
+
+- **Semantic correctness:** Path segments function as the means to identify individual resources. `/sensors` stands as the collection which permanently links to the same resource despite all filtering activities. Query parameters modify how that resource is presented to users.
+- **Composability:** Multiple filters combine naturally: `?type=CO2&status=ACTIVE`. Path-based filters create complex URLs which require multiple nested elements to operate effectively.
+- **Optionality:** Query params are inherently optional. Path segments create mandatory identifier requirements which result in problems during unnecessary filtering situations.
+- **Caching compatibility:** Caches and proxies use the path to identify the resource which creates conflicts with path-based filters that generate different cache records for identical resources.
+- **REST convention:** Query params are the universally accepted convention for search, filter, sort, and paginate operations.
+
+---
+
+### Question 7: Sub-Resource Locator Pattern
 
 The sub-resource locator pattern (where a resource method returns an instance of another resource class rather than a response) offers significant architectural benefits:
 
 1. **Single Responsibility Principle:** `SensorResource` manages sensor CRUD; `SensorReadingResource` manages historical data. Each class has one clear purpose.
 2. **Maintainability:** In large APIs, placing every nested endpoint in one controller creates unmaintainable "god classes" with hundreds of methods. Sub-resources create a navigable class hierarchy that mirrors the URL hierarchy.
-3. **Testability:** Sub-resource classes can be unit-tested in isolation with a known `sensorId`, without needing to bootstrap the full resource tree.
+3. **Testability:** Sub-resource classes can be unit-tested in isolation with a known sensorId, without needing to bootstrap the full resource tree.
 4. **Reusability:** A sub-resource class could theoretically be reused in multiple parent contexts.
 5. **Clarity:** The code structure visually communicates the API hierarchy — reading `SensorResource` clearly shows that readings are delegated to another class.
 
 ---
 
-### Part 5.2 — HTTP 422 vs 404 for Missing Reference
+### Question 8: HTTP 422 vs 404 for Missing Reference
 
-When a client POSTs a sensor with a `roomId` that doesn't exist, **HTTP 422 Unprocessable Entity** is more semantically accurate than 404 for these reasons:
+When a client POSTs a sensor with a roomId that doesn't exist, HTTP 422 Unprocessable Entity is more semantically accurate than 404 for these reasons:
 
-- **404 Not Found** means the *requested URL* (`/api/v1/sensors`) was not found. But the URL is perfectly valid and was found — the endpoint exists and processed the request.
-- The problem is not the URL, but a **broken reference inside the request body**. The JSON is syntactically valid, but semantically invalid because it declares a dependency (`roomId`) that doesn't exist.
+- **404 Not Found** means the requested URL (`/api/v1/sensors`) was not found. But the URL is perfectly valid and was found — the endpoint exists and processed the request.
+- The problem is not the URL, but a **broken reference inside the request body**. The JSON is syntactically valid, but semantically invalid because it declares a dependency (roomId) that doesn't exist.
 - **422** explicitly signals: "I understood your request, I can parse it, but I cannot fulfil it because the instructions are semantically invalid."
 - Using 404 here would mislead clients into thinking the sensors endpoint itself doesn't exist, causing incorrect error-handling logic on the client side.
 
 ---
 
-### Part 5.4 — Risks of Exposing Stack Traces
+### Question 9: Risks of Exposing Stack Traces
 
 Exposing raw Java stack traces to external API consumers is a critical security vulnerability:
 
@@ -252,7 +251,7 @@ The global `ExceptionMapper<Throwable>` ensures all unexpected errors return a g
 
 ---
 
-### Part 5.5 — JAX-RS Filters vs Inline Logging
+### Question 10: JAX-RS Filters vs Inline Logging
 
 Using JAX-RS filters for cross-cutting concerns like logging is superior to manual `Logger.info()` calls because:
 
