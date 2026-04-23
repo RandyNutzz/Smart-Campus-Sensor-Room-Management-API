@@ -238,20 +238,6 @@ When a client POSTs a sensor with a `roomId` that doesn't exist, **HTTP 422 Unpr
 
 ---
 
-### Part 5.3 — State Constraint and HTTP 403 Forbidden
-
-When a sensor is marked with the status `"MAINTENANCE"`, it is physically disconnected from the campus infrastructure and cannot transmit accurate data. Accepting a reading from such a sensor would pollute the historical log with unreliable values and corrupt the `currentValue` field of the parent sensor object.
-
-**Why HTTP 403 Forbidden?**
-- **403 Forbidden** communicates that the server understood the request perfectly, but is **refusing to fulfil it** due to a business rule or permission constraint.
-- The client's request is syntactically and semantically valid — the sensor exists, the reading has a value — but the **current state** of the resource forbids the operation.
-- This is more accurate than 400 (which implies a malformed request) or 404 (which implies the resource doesn't exist).
-- It signals to the client: *"You found the right endpoint, your data is valid, but this action is not permitted right now."*
-
-The `SensorUnavailableException` and its mapper enforce this rule cleanly — the business constraint lives in one place and is consistently applied across the API.
-
----
-
 ### Part 5.4 — Risks of Exposing Stack Traces
 
 Exposing raw Java stack traces to external API consumers is a critical security vulnerability:
